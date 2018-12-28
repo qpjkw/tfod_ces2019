@@ -1,0 +1,86 @@
+FROM tensorflow/tensorflow:1.11.0-py3
+
+# version listing
+# Tensorflow: 1.11.0-py3
+# Model: commit@c9f03b
+# cocoapi: commit@ed842bf
+
+# issue 
+# Line 418 on model_lib.py error
+
+MAINTAINER JianKai Wang "https://jiankaiwang.no-ip.biz"
+
+# install dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    protobuf-compiler \
+    python3-lxml \
+    python3-tk \
+    python3-setuptools \
+    wget \
+    unzip \
+	cmake \
+	libsm6 \
+	libxext6 \
+	libavcodec-dev \
+	libavformat-dev \
+	libswscale-dev
+
+RUN pip install --user Cython \
+	contextlib2 \
+	pillow \
+	gevent \
+	gunicorn \
+	flask \
+	opencv-python && \
+	ln -s /root/.local/bin/gunicorn /usr/bin/ && \
+	ln -s /root/.local/bin/flask /usr/bin
+
+WORKDIR /notebooks
+
+# clone the models under path /notebooks
+# and export the library
+RUN git clone https://github.com/tensorflow/models.git && \
+	rm -rf /notebooks/models/.git && \
+	rm -rf /notebooks/models/.gitignore && \
+	rm -rf /notebooks/models/.gitmodules && \
+	rm -f /notebooks/models/research/object_detection/model_lib.py && \
+	printf "\n# ADD tensorflow/models\n" >> ~/.bashrc && \
+	printf "PYTHONPATH=$PYTHONPATH:/notebooks/models/research:/notebooks/models/research/slim\n" >> ~/.bashrc && \
+	/bin/bash -c "source ~/.bashrc"
+
+# Solve issue #4780
+COPY ./object_detection/issues/models/model_lib.py /notebooks/models/research/object_detection/model_lib.py
+
+# COCO API installation
+RUN git clone https://github.com/cocodataset/cocoapi.git
+WORKDIR cocoapi/PythonAPI
+RUN make && \
+	cp -r pycocotools /notebooks/models/research/ && \
+	rm -rf /notebooks/cocoapi
+
+# protobuf compilation
+WORKDIR /notebooks
+RUN wget -O protobuf.zip https://github.com/google/protobuf/releases/download/v3.0.0/protoc-3.0.0-linux-x86_64.zip && \
+	unzip protobuf.zip -d protobuf && \
+	rm -f protobuf.zip && \
+	rm -f /usr/bin/protoc && \
+	ln -s /notebooks/protobuf/bin/protoc /usr/bin/protoc
+WORKDIR /notebooks/models/research/
+RUN protoc object_detection/protos/*.proto --python_out=.
+
+# clone Flask Video Streaming for Object Detection
+WORKDIR /notebooks
+RUN git clone https://github.com/jiankaiwang/Flask_Video_Streaming_for_Object_Detection.git && \
+	rm -rf /notebooks/Flask_Video_Streaming_for_Object_Detection/.git && \
+	rm -f /notebooks/Flask_Video_Streaming_for_Object_Detection/camera_obdet.py
+
+# expose for webcamera
+EXPOSE 5000
+
+# object detection material
+WORKDIR /notebooks
+ADD . /object_detection
+COPY ./object_detection /notebooks/object_detection
+COPY ./object_detection/issues/Flask_Video_Streaming_for_Object_Detection/camera_obdet.py \
+	/notebooks/Flask_Video_Streaming_for_Object_Detection/camera_obdet.py
